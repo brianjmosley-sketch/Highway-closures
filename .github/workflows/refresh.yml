@@ -1,0 +1,58 @@
+name: Refresh closures and publish site
+
+on:
+  schedule:
+    - cron: "7,22,37,52 * * * *"   # about every 15 minutes (GitHub may run scheduled jobs a few minutes late)
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build the site and pull TxDOT data
+        env:
+          DRIVETEXAS_KEY: ${{ secrets.DRIVETEXAS_KEY }}
+        run: |
+          if [ -z "$DRIVETEXAS_KEY" ]; then
+            echo "::error::Add your DriveTexas API key as a repository secret named DRIVETEXAS_KEY (Settings > Secrets and variables > Actions)."
+            exit 1
+          fi
+          mkdir -p _site
+          cp -r index.html manifest.webmanifest tx-counties.json icon-192.png icon-512.png apple-touch-icon.png lib _site/
+          python3 tools/refresh.py --key "$DRIVETEXAS_KEY" --out _site/data
+
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v5
+
+      - name: Keep the schedule alive
+        # GitHub pauses scheduled workflows in public repos after 60 days without commits,
+        # so commit a tiny timestamp once a day.
+        if: github.event_name == 'schedule'
+        run: |
+          if [ "$(date -u +%H)" = "12" ] && [ "$(date -u +%M)" -lt 20 ]; then
+            date -u +%Y-%m-%dT%H:%MZ > last-refresh.txt
+            git config user.name "highway-closures-bot"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add last-refresh.txt
+            git commit -m "Daily refresh heartbeat [skip ci]" && git push || true
+          fi

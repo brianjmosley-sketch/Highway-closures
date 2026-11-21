@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Highway Closures · San Antonio and Texas</title>
+<meta name="description" content="Current TxDOT highway closures, lane closures and road work around San Antonio and across Texas, on a live map.">
+<meta name="theme-color" content="#f7801e">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="stylesheet" href="lib/maplibre-gl.css">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Overpass:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+/* VOICE: a working road-conditions tool; plain, fast, readable at a glance.
+   IDEA: a Texas work-zone sign board: orange sign band, route shields, black type.
+   PICTURE: a real street map with every closed stretch drawn on it.
+   COLOUR and TYPE: work-zone orange, asphalt ink, closure red; Overpass (Highway Gothic lineage).
+   LAYOUT: sign band, then map beside (or above) the closure list; filters stick to the list. */
+:root{color-scheme:light dark;--bg:light-dark(#ffffff,#141518);--ink:light-dark(#141518,#f2f0eb);--soft:light-dark(#5d5f66,#a9abb2);--line:light-dark(#e3e1dc,#2b2d33);--panel:light-dark(#f6f4ef,#1c1d21);--orange:#f7801e;--onorange:#141518;--red:light-dark(#c8102e,#ff4d5e);--amber:light-dark(#d96a00,#ffa040);--work:light-dark(#8a8c93,#7c7f88)}
+*{box-sizing:border-box;min-width:0}[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 Overpass,system-ui,sans-serif;overflow-x:clip}
+button,select,input{font:inherit;color:inherit}
+.sign{background:var(--orange);color:var(--onorange);padding:max(14px,env(safe-area-inset-top)) max(4vw,16px) 14px}
+.sign .row{max-width:1240px;margin:0 auto;display:flex;flex-wrap:wrap;gap:10px 18px;align-items:end;justify-content:space-between}
+.kicker{margin:0 0 2px;font-weight:800;font-size:15px}
+h1{margin:0;font-weight:800;font-size:clamp(28px,6vw,46px);line-height:1.05;text-wrap:balance}
+.fresh{margin:4px 0 0;font-size:14px;font-weight:600}
+.area{display:flex;flex-direction:column;gap:2px;font-size:13px;font-weight:600}
+.area select{min-height:44px;font-size:16px;font-weight:600;border:2px solid var(--onorange);border-radius:8px;background:#fff;color:#141518;padding:0 10px;max-width:min(320px,90vw)}
+.stale{background:var(--red);color:#fff;padding:10px max(4vw,16px);font-size:14px;font-weight:600}
+main{max-width:1240px;margin:0 auto;padding:14px max(4vw,16px) 40px;display:grid;grid-template-columns:minmax(0,1fr);gap:16px}
+@media(min-width:900px){main{grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);align-items:start}.mapwrap{position:sticky;top:12px}}
+#map{height:clamp(340px,58vh,680px);border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#eef0ea}
+.closed{--k:var(--red)}.lanes{--k:var(--amber)}.work{--k:var(--work)}
+.key{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px;color:var(--soft);margin-top:8px}
+.key i{display:inline-block;width:18px;height:5px;border-radius:3px;background:var(--k);vertical-align:middle;margin-right:6px}
+.tally{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.tally button{border:2px solid var(--line);background:var(--bg);border-radius:10px;padding:8px 10px;text-align:start;min-height:64px;cursor:pointer}
+.tally button[aria-pressed=true]{border-color:var(--k);box-shadow:inset 0 -4px 0 var(--k)}
+.tally b{display:block;font-size:clamp(22px,4vw,30px);line-height:1.1;font-weight:800;color:var(--k)}
+.tally span{font-size:13px;color:var(--soft);font-weight:600}
+.tools{position:sticky;top:0;z-index:2;background:var(--bg);padding:10px 0;display:grid;gap:8px;border-bottom:1px solid var(--line)}
+.when{display:flex;gap:6px;overflow-x:auto}
+.when button,.near{flex:none;min-height:40px;padding:0 14px;border-radius:20px;border:1px solid var(--line);background:var(--panel);font-weight:600;font-size:14px;cursor:pointer}
+.when button[aria-pressed=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.srow{display:flex;gap:8px}
+.search{flex:1;min-height:44px;font-size:16px;padding:0 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+.near{min-height:44px;border-radius:10px;font-weight:800}.near[aria-pressed=true]{background:#1f6fd6;color:#fff;border-color:#1f6fd6}
+button:focus-visible,select:focus-visible,input:focus-visible,a:focus-visible{outline:3px solid var(--orange);outline-offset:2px}
+.count{font-size:14px;color:var(--soft);margin:2px 0 0}
+.list{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.card{border:1px solid var(--line);border-left:6px solid var(--k);border-radius:10px;padding:12px 14px;background:var(--bg);cursor:pointer}
+.card[aria-current=true]{background:var(--panel);box-shadow:0 0 0 2px var(--k)}
+.top{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}
+.pill{font-size:12px;font-weight:800;padding:3px 8px;border-radius:4px;background:var(--k);color:#fff;white-space:nowrap}
+.lanes .pill{color:#141518;background:var(--orange)}.work .pill{background:var(--work)}
+.dir{font-weight:800;font-size:15px}.dist{margin-left:auto;font-weight:800;font-size:14px;color:#1f6fd6;white-space:nowrap}
+.where{margin:6px 0 2px;font-size:17px;font-weight:600;line-height:1.3}
+.time{font-size:14px;font-weight:600;color:var(--soft)}
+.time .now{color:var(--red)}
+.desc{margin:6px 0 0;font-size:15px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.card[aria-current=true] .desc{-webkit-line-clamp:unset;display:block}
+.dates{margin:8px 0 0;padding-inline-start:18px;font-size:14px;columns:2 200px}.dates li{break-inside:avoid}
+.tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;font-size:13px;align-items:center}
+.tags span{border:1px solid var(--line);border-radius:4px;padding:1px 7px;white-space:nowrap}
+.tags a{color:var(--ink);font-weight:700;text-underline-offset:3px;white-space:nowrap}
+.onmap{margin-left:auto;min-height:36px;padding:0 12px;border-radius:8px;border:1.5px solid var(--ink);background:var(--bg);font-weight:800;font-size:14px;cursor:pointer;white-space:nowrap}
+.shield{position:relative;display:inline-grid;place-items:center;height:26px;min-width:28px;font-weight:800;font-size:13px;line-height:1}
+.shield svg{position:absolute;inset:0;width:100%;height:100%}
+.shield b{position:relative;padding-top:4px}.shield.i b{color:#fff}.shield.us b{color:#141518}
+.badge{display:inline-flex;align-items:baseline;gap:3px;border:2px solid var(--ink);border-radius:5px;padding:2px 6px;font-weight:800;font-size:13px;white-space:nowrap}
+.badge small{font-size:10px}
+.more,.clear{min-height:44px;padding:0 18px;border-radius:10px;border:2px solid var(--ink);background:var(--bg);font-weight:800;cursor:pointer}
+.empty{border:1px dashed var(--line);border-radius:12px;padding:18px;background:var(--panel)}
+.empty h2{margin:0 0 6px;font-size:22px;line-height:1.2}
+.maplibregl-popup-content{font:15px/1.4 Overpass,system-ui,sans-serif;color:#141518;padding:10px 12px;border-radius:10px;max-width:270px}
+.pop .top{gap:6px;padding-right:16px}.pop p{margin:6px 0}.pop button{min-height:36px;padding:0 12px;border-radius:8px;border:1.5px solid #141518;background:#fff;font-weight:800;cursor:pointer;color:#141518}
+.pop .badge{border-color:#141518}
+footer{max-width:1240px;margin:0 auto;padding:0 max(4vw,16px) max(32px,env(safe-area-inset-bottom));font-size:13px;color:var(--soft)}
+footer a{color:inherit}
+@media(prefers-reduced-motion:no-preference){.card{transition:box-shadow .15s,background .15s}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <clipPath id="shc"><path d="M2 3C10 0 30 0 38 3C39 18 31 30 20 35C9 30 1 18 2 3Z"/></clipPath>
+    <symbol id="sh-i" viewBox="0 0 40 36"><g clip-path="url(#shc)"><rect width="40" height="36" fill="#1f4fa3"/><rect width="40" height="10" fill="#c8102e"/></g><path d="M2 3C10 0 30 0 38 3C39 18 31 30 20 35C9 30 1 18 2 3Z" fill="none" stroke="#fff" stroke-width="2"/></symbol>
+    <symbol id="sh-us" viewBox="0 0 40 36"><path d="M3 2H37C38 8 36 10 37 16C38 28 26 30 20 35C14 30 2 28 3 16C4 10 2 8 3 2Z" fill="#fff" stroke="#141518" stroke-width="2.4"/></symbol>
+  </defs>
+</svg>
+<header class="sign">
+  <div class="row">
+    <div>
+      <p class="kicker">Highway closures and road work</p>
+      <h1 id="title">San Antonio area</h1>
+      <p class="fresh" id="fresh">Loading TxDOT data…</p>
+    </div>
+    <label class="area">Area
+      <select id="area" aria-label="Area"><option value="sa">San Antonio area</option></select>
+    </label>
+  </div>
+</header>
+<div class="stale" id="stale" hidden></div>
+<main>
+  <section class="mapwrap" aria-label="Map">
+    <div id="map"></div>
+    <div class="key"><span class="closed"><i></i>Road closed</span><span class="lanes"><i></i>Lanes, ramps or turnarounds closed</span><span class="work"><i></i>Work zone, lanes open</span></div>
+  </section>
+  <section aria-label="Closures">
+    <div class="tally" id="tally">
+      <button class="closed" data-k="closed" aria-pressed="false"><b>–</b><span>Road closed</span></button>
+      <button class="lanes" data-k="lanes" aria-pressed="false"><b>–</b><span>Lanes or ramps closed</span></button>
+      <button class="work" data-k="work" aria-pressed="false"><b>–</b><span>Work zones</span></button>
+    </div>
+    <div class="tools">
+      <div class="when" id="when" role="group" aria-label="When">
+        <button data-w="now" aria-pressed="false">Right now</button>
+        <button data-w="24" aria-pressed="true">Next 24 hours</button>
+        <button data-w="168" aria-pressed="false">Next 7 days</button>
+        <button data-w="all" aria-pressed="false">All scheduled</button>
+      </div>
+      <div class="srow">
+        <input class="search" id="q" type="search" placeholder="Highway or street: I-35, Loop 1604" aria-label="Search highway or street" autocomplete="off">
+        <button class="near" id="near" aria-pressed="false">Near me</button>
+      </div>
+      <p class="count" id="count"></p>
+    </div>
+    <ul class="list" id="list"></ul>
+    <div id="after"></div>
+  </section>
+</main>
+<footer>Road work data: Texas Department of Transportation, <a href="https://drivetexas.org/">DriveTexas</a>, refreshed about every 15 minutes. This site is independent and not run by TxDOT. Closures can change with weather; follow the signs on the road. Map: <a href="https://openfreemap.org/">OpenFreeMap</a>, data © OpenStreetMap contributors.</footer>
+<script src="lib/maplibre-gl.js"></script>
+<script>
+{
+const SA=["Atascosa","Bandera","Bexar","Comal","Frio","Guadalupe","Kendall","Kerr","McMullen","Medina","Uvalde","Wilson"];
+const TZ="America/Chicago",KN={closed:"Road closed",lanes:"Lanes or ramps closed",work:"Work zone"},COL={closed:"#d0021b",lanes:"#ef7d00",work:"#7d808a"};
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const store={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
+const S={sa:null,tx:null,counties:null,area:store.get("rw-area")||"sa",when:"24",kinds:new Set(),q:"",sel:null,shown:60,me:null,visible:[]};
+const getJSON=p=>fetch(p+(p.includes("?")?"&":"?")+"t="+Date.now(),{cache:"no-store"}).then(r=>{if(!r.ok)throw new Error(r.status);return r.json()});
+
+const fmtT=(d,withDay)=>{const o={timeZone:TZ,hour:"numeric"};if(d.getMinutes())o.minute="2-digit";const t=d.toLocaleTimeString("en-US",o);return withDay?d.toLocaleDateString("en-US",{timeZone:TZ,weekday:"short"})+" "+t:t};
+const fmtD=d=>d.toLocaleDateString("en-US",{timeZone:TZ,month:"short",day:"numeric",year:d.getFullYear()!==new Date().getFullYear()?"numeric":undefined});
+const when=d=>{const h=(d-Date.now())/36e5;return h>-24&&h<24*6?fmtT(d,true):fmtD(d)};
+const ago=ms=>{const m=Math.round(ms/6e4);return m<1?"just now":m<60?m+" min ago":Math.round(m/60)+" hr ago"};
+const span=([a,b])=>({s:a?Date.parse(a):-Infinity,x:b?Date.parse(b):Infinity});
+function state(e,now){for(const t of e.t||[]){const o=span(t);if(o.x>now)return {...o,live:o.s<=now,ended:false}}return {ended:true}}
+const left=(e,now)=>(e.t||[]).filter(t=>span(t).x>now);
+function range(t){const {s,x}=span(t);if(s===-Infinity)return x===Infinity?"Ongoing":"Until "+when(new Date(x));const a=new Date(s);
+  const day=a.toLocaleDateString("en-US",{timeZone:TZ,weekday:"short",month:"short",day:"numeric"});
+  if(x===Infinity)return `${day}, ${fmtT(a)} on`;const b=new Date(x);return x-s>36*36e5?`${fmtD(a)} to ${fmtD(b)}`:`${day}, ${fmtT(a)} to ${fmtT(b)}`}
+function timing(e,now){const t=state(e,now);const long=t.x-Math.max(t.s,now)>14*864e5;
+  const until=t.x===Infinity?"no end date posted":long?"through "+fmtD(new Date(t.x)):"until "+when(new Date(t.x));
+  const n=left(e,now).length,more=n>1?` · ${n} dates posted`:"";
+  const part=(e.tags||[]).includes("Nights only")?"Nights":(e.tags||[]).includes("Daytime only")?"Daytime":"";
+  if(t.live&&t.x-t.s>36*36e5&&part)return `<span class="now">${part}</span>, project ${until}`+more;
+  if(t.live&&long)return `<span class="now">In effect</span> ${until}`;
+  return (t.live?`<span class="now">Happening now</span> · ${until}`:`Starts ${when(new Date(t.s))} · ${until}`)+more}
+function shield(r){let m=r.match(/^I-(\d+\w?)$/);if(m)return `<span class="shield i" style="width:${18+m[1].length*7}px" title="${esc(r)}"><svg><use href="#sh-i"/></svg><b>${m[1]}</b></span>`;
+  m=r.match(/^US (\d+\w?)$/);if(m)return `<span class="shield us" style="width:${18+m[1].length*7}px" title="${esc(r)}"><svg><use href="#sh-us"/></svg><b>${m[1]}</b></span>`;
+  m=r.match(/^(SH|Loop|FM|RM|Spur|Bus\.|Park Rd|Rec Rd|PA) (\d+\w?)$/);if(m)return `<span class="badge"><small>${m[1].toUpperCase()}</small>${m[2]}</span>`;
+  return `<span class="badge">${esc(r)}</span>`}
+const whereOf=e=>e.from&&e.to?(e.from===e.to?`At ${e.from}`:`${e.from} to ${e.to}`):(e.from||e.to||(e.county?e.county+" County":""));
+const miles=(a,b)=>{const R=3958.8,r=Math.PI/180,dl=(b[1]-a[1])*r,dn=(b[0]-a[0])*r;const h=Math.sin(dl/2)**2+Math.cos(a[1]*r)*Math.cos(b[1]*r)*Math.sin(dn/2)**2;return 2*R*Math.asin(Math.sqrt(h))};
+
+function areaEvents(){const a=S.area;if(a==="sa")return S.sa?.events||[];if(SA.includes(a))return (S.sa?.events||[]).filter(e=>e.county===a);
+  const ev=S.tx?.events||[];return a==="texas"?ev:ev.filter(e=>e.county===a)}
+function passes(e,now,ignoreKind){const t=state(e,now);if(t.ended)return false;
+  if(S.when==="now"&&!t.live)return false;
+  if(S.when!=="now"&&S.when!=="all"&&!(t.s<now+S.when*36e5))return false;
+  if(!ignoreKind&&S.kinds.size&&!S.kinds.has(e.kind))return false;
+  if(S.q){const hay=[...(e.roads||[]),e.from,e.to,e.desc,e.county,e.dir,e.label].join(" ").toLowerCase().replace(/[-\s]+/g," ");
+    if(!S.q.split(/\s+/).every(w=>hay.includes(w)))return false}
+  return true}
+
+function render(){const now=Date.now();const all=areaEvents();
+  const base=all.filter(e=>passes(e,now,true));let ev=base.filter(e=>!S.kinds.size||S.kinds.has(e.kind));
+  if(S.me)ev=ev.map(e=>({e,d:e.mid?miles(S.me,e.mid):1e9})).sort((a,b)=>a.d-b.d).map(x=>(x.e._d=x.d,x.e));
+  for(const b of $("tally").children){const k=b.dataset.k;b.querySelector("b").textContent=base.filter(e=>e.kind===k).length;b.setAttribute("aria-pressed",S.kinds.has(k))}
+  for(const b of $("when").children)b.setAttribute("aria-pressed",b.dataset.w===S.when);
+  $("count").textContent=`Showing ${ev.length} of ${all.length} posted ${all.length===1?"closure":"closures"} in ${areaName()}${S.me?", nearest first":""}. Tap one for details and dates.`;
+  $("list").innerHTML=ev.slice(0,S.shown).map(e=>card(e,now)).join("");
+  $("after").innerHTML=ev.length>S.shown?`<button class="more" id="more">Show ${Math.min(60,ev.length-S.shown)} more</button>`
+    :!ev.length&&all.length?`<div class="empty"><h2>Nothing matches</h2><p>No entries for this time and search.</p><button class="clear" id="clr">Clear filters</button></div>`
+    :!all.length?`<div class="empty"><h2>No posted road work</h2><p>TxDOT has nothing listed for ${esc(areaName())} right now.</p></div>`:"";
+  S.visible=ev;mapData()}
+
+function card(e,now){const roads=(e.roads||[]).map(shield).join(" "),where=whereOf(e);
+  const tags=[...(e.tags||[]),e.closedLanes&&e.totalLanes?`${e.closedLanes} of ${e.totalLanes} lanes closed`:"",e.mph&&`${e.mph} mph zone`,e.workers&&"Workers present",e.county&&`${e.county} Co.`].filter(Boolean);
+  const dates=S.sel===e.id?left(e,now):[];
+  const links=e.mid?`<a href="https://www.google.com/maps/search/?api=1&query=${e.mid[1]},${e.mid[0]}" target="_blank" rel="noopener">Google Maps</a><button class="onmap" data-show="${esc(e.id)}">Show on map</button>`:"";
+  return `<li class="card ${e.kind}" data-id="${esc(e.id)}" aria-current="${S.sel===e.id}" tabindex="0">
+  <div class="top"><span class="pill">${esc(e.label||KN[e.kind])}</span>${roads}${e.dir?`<span class="dir">${esc(e.dir)}</span>`:""}${S.me&&e._d<1e8?`<span class="dist">${e._d<10?e._d.toFixed(1):Math.round(e._d)} mi</span>`:""}</div>
+  ${where?`<p class="where">${esc(where)}</p>`:""}<div class="time">${timing(e,now)}</div>
+  ${e.desc?`<p class="desc">${esc(e.desc)}</p>`:""}
+  ${dates.length>1?`<ul class="dates">${dates.slice(0,21).map(t=>`<li>${range(t)}</li>`).join("")}${dates.length>21?`<li>and ${dates.length-21} more</li>`:""}</ul>`:""}
+  <div class="tags">${tags.map(t=>`<span>${esc(t)}</span>`).join("")}${links}</div></li>`}
+
+function areaName(){const a=S.area;return a==="sa"?"the San Antonio area":a==="texas"?"Texas":a+" County"}
+
+// ---------- map ----------
+const map=new maplibregl.Map({container:"map",style:"https://tiles.openfreemap.org/styles/liberty",center:[-98.49,29.42],zoom:8,attributionControl:{compact:true},dragRotate:false,pitchWithRotate:false});
+map.touchZoomRotate.disableRotation();
+map.addControl(new maplibregl.NavigationControl({showCompass:false}),"top-right");
+const geo=new maplibregl.GeolocateControl({positionOptions:{enableHighAccuracy:true},trackUserLocation:false,showAccuracyCircle:false,fitBoundsOptions:{maxZoom:11.5}});
+map.addControl(geo,"top-right");
+let ready=false,popup=null;
+map.on("load",()=>{const first=map.getStyle().layers.find(l=>l.type==="symbol")?.id;
+  map.addSource("cl",{type:"geojson",data:{type:"FeatureCollection",features:[]}});
+  map.addSource("mid",{type:"geojson",data:{type:"FeatureCollection",features:[]}});
+  const kind=["match",["get","kind"],"closed",COL.closed,"lanes",COL.lanes,COL.work];
+  const w=(a,b)=>["interpolate",["linear"],["zoom"],7,a,15,b];
+  map.addLayer({id:"cl-case",type:"line",source:"cl",layout:{"line-cap":"round","line-join":"round"},paint:{"line-color":"#ffffff","line-width":w(5,13)}},first);
+  map.addLayer({id:"cl-sel",type:"line",source:"cl",filter:["==",["get","id"],""],layout:{"line-cap":"round","line-join":"round"},paint:{"line-color":"#141518","line-width":w(10,19)}},first);
+  map.addLayer({id:"cl-line",type:"line",source:"cl",layout:{"line-cap":"round","line-join":"round"},paint:{"line-color":kind,"line-width":w(3,8)}},first);
+  map.addLayer({id:"cl-dot",type:"circle",source:"mid",maxzoom:11,paint:{"circle-color":kind,"circle-radius":["interpolate",["linear"],["zoom"],6,3,10,5.5],"circle-stroke-color":"#fff","circle-stroke-width":1.5}});
+  ready=true;mapData();fitArea(false)});
+map.on("click",e=>{const p=e.point,f=map.queryRenderedFeatures([[p.x-14,p.y-14],[p.x+14,p.y+14]],{layers:["cl-line","cl-dot"]});
+  if(f.length){select(f[0].properties.id,"map")}else if(popup){popup.remove()}});
+for(const l of ["cl-line","cl-dot"]){map.on("mouseenter",l,()=>map.getCanvas().style.cursor="pointer");map.on("mouseleave",l,()=>map.getCanvas().style.cursor="")}
+function mapData(){if(!ready)return;const order={work:0,lanes:1,closed:2};const ev=[...S.visible].filter(e=>e.mid).sort((a,b)=>order[a.kind]-order[b.kind]);
+  map.getSource("cl").setData({type:"FeatureCollection",features:ev.map(e=>({type:"Feature",properties:{id:e.id,kind:e.kind},geometry:e.line&&e.line.length>1?{type:"LineString",coordinates:e.line}:{type:"Point",coordinates:e.mid}}))});
+  map.getSource("mid").setData({type:"FeatureCollection",features:ev.map(e=>({type:"Feature",properties:{id:e.id,kind:e.kind},geometry:{type:"Point",coordinates:e.mid}}))});
+  map.setFilter("cl-sel",["==",["get","id"],S.sel||""])}
+function areaBox(){if(!S.counties)return null;const names=S.area==="sa"?SA:S.area==="texas"?null:[S.area];let b=[180,90,-180,-90];
+  for(const c of S.counties)if(!names||names.includes(c.n))b=[Math.min(b[0],c.b[0]),Math.min(b[1],c.b[1]),Math.max(b[2],c.b[2]),Math.max(b[3],c.b[3])];return b[0]<b[2]?b:null}
+function fitArea(anim=true){const b=areaBox();if(b)map.fitBounds([[b[0],b[1]],[b[2],b[3]]],{padding:24,animate:anim})}
+function fitEvent(e){const L=e.line?.length?e.line:[e.mid];let b=[180,90,-180,-90];for(const [x,y] of L)b=[Math.min(b[0],x),Math.min(b[1],y),Math.max(b[2],x),Math.max(b[3],y)];
+  map.fitBounds([[b[0],b[1]],[b[2],b[3]]],{padding:70,maxZoom:14.5,duration:matchMedia("(prefers-reduced-motion:reduce)").matches?0:700})}
+function showPopup(e){if(popup)popup.remove();if(!e?.mid)return;
+  popup=new maplibregl.Popup({closeButton:true,maxWidth:"280px",offset:10}).setLngLat(e.mid).setHTML(`<div class="pop ${e.kind}"><div class="top"><span class="pill">${esc(e.label||KN[e.kind])}</span>${(e.roads||[]).map(shield).join(" ")}${e.dir?`<b>${esc(e.dir)}</b>`:""}</div><p>${esc(whereOf(e))}</p><p class="time">${timing(e,Date.now())}</p><button data-go="${esc(e.id)}">Details</button></div>`).addTo(map)}
+document.addEventListener("click",ev=>{const b=ev.target.closest(".pop [data-go]");if(b)toCard(b.dataset.go)});
+
+const smooth=()=>matchMedia("(prefers-reduced-motion:reduce)").matches?"auto":"smooth";
+function toCard(id){const i=S.visible.findIndex(e=>e.id===id);if(i>=S.shown){S.shown=i+10;render()}document.querySelector(`.card[data-id="${CSS.escape(id)}"]`)?.scrollIntoView({block:"center",behavior:smooth()})}
+function select(id,from){S.sel=S.sel===id&&from==="card"?null:id;render();const e=S.visible.find(x=>x.id===S.sel);
+  if(!e){if(popup)popup.remove();return}
+  if(from!=="map")fitEvent(e);showPopup(e);
+  if(from==="show"){const r=$("map").getBoundingClientRect();if(r.top<0||r.bottom>innerHeight)$("map").scrollIntoView({block:"start",behavior:smooth()})}
+  if(from==="map"&&innerWidth>=900)toCard(id)}
+
+async function setArea(a,fit=true){S.area=a;S.sel=null;S.shown=60;store.set("rw-area",a);$("area").value=a;if(popup)popup.remove();
+  $("title").textContent=a==="sa"?"San Antonio area":a==="texas"?"All of Texas":`${a} County`;
+  if(a!=="sa"&&!SA.includes(a)&&!S.tx){$("list").innerHTML="";$("count").textContent="Loading statewide data…";
+    try{S.tx=await getJSON("data/texas.json")}catch(e){$("count").textContent="Statewide data could not load. Try again in a moment.";return}}
+  render();if(fit)fitArea()}
+function fillAreas(){const c=S.sa.counts||{};const other=Object.keys(c).filter(n=>n!=="Unknown"&&!SA.includes(n)).sort();
+  $("area").innerHTML=`<option value="sa">San Antonio area (${SA.reduce((t,n)=>t+(c[n]||0),0)})</option><optgroup label="San Antonio area counties">${SA.map(n=>`<option value="${n}">${n} (${c[n]||0})</option>`).join("")}</optgroup><option value="texas">All of Texas (${S.sa.total})</option>${other.length?`<optgroup label="Other counties">${other.map(n=>`<option value="${esc(n)}">${esc(n)} (${c[n]})</option>`).join("")}</optgroup>`:""}`;
+  $("area").value=S.area}
+function freshness(){if(!S.sa)return;const u=Date.parse(S.sa.updated);const age=Date.now()-u;
+  $("fresh").textContent=`TxDOT DriveTexas · updated ${fmtT(new Date(u),true)} (${ago(age)})`;
+  const st=$("stale");st.hidden=age<2*36e5;st.textContent=`This data is ${Math.round(age/36e5)} hours old; updates may be delayed. Closures shown may have changed.`}
+function inRing(x,y,r){let k=false;for(let i=0,j=r.length-1;i<r.length;j=i++){const [xi,yi]=r[i],[xj,yj]=r[j];if((yi>y)!==(yj>y)&&x<(xj-xi)*(y-yi)/(yj-yi)+xi)k=!k}return k}
+const countyAt=([x,y])=>S.counties?.find(c=>c.b[0]<=x&&x<=c.b[2]&&c.b[1]<=y&&y<=c.b[3]&&c.r.some(r=>inRing(x,y,r)))?.n;
+
+geo.on("geolocate",async p=>{S.me=[p.coords.longitude,p.coords.latitude];$("near").setAttribute("aria-pressed","true");
+  const c=countyAt(S.me);if(c&&!SA.includes(c)&&S.area!=="texas"&&S.area!==c)await setArea((S.sa.counts||{})[c]?c:"texas",false);
+  else if(c&&SA.includes(c)&&S.area!=="sa"&&S.area!==c)await setArea("sa",false);S.shown=60;render()});
+geo.on("error",()=>{$("count").textContent="Your location isn't available. Allow location for this site in your browser settings to sort by distance."});
+$("near").addEventListener("click",()=>{if(S.me){S.me=null;$("near").setAttribute("aria-pressed","false");render();return}geo.trigger()});
+$("area").addEventListener("change",e=>setArea(e.target.value));
+$("tally").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;const k=b.dataset.k;S.kinds.has(k)?S.kinds.delete(k):S.kinds.add(k);S.shown=60;render()});
+$("when").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;S.when=b.dataset.w;S.shown=60;render()});
+let qt;$("q").addEventListener("input",e=>{clearTimeout(qt);qt=setTimeout(()=>{S.q=e.target.value.trim().toLowerCase().replace(/[-\s]+/g," ");S.shown=60;render()},150)});
+$("list").addEventListener("click",e=>{if(e.target.closest("a"))return;const b=e.target.closest("[data-show]");if(b){S.sel=null;select(b.dataset.show,"show");return}const c=e.target.closest(".card");if(c)select(c.dataset.id,"card")});
+$("list").addEventListener("keydown",e=>{const c=e.target.closest(".card");if(c&&e.target===c&&(e.key==="Enter"||e.key===" ")){e.preventDefault();select(c.dataset.id,"card")}});
+$("after").addEventListener("click",e=>{if(e.target.id==="more"){S.shown+=60;render()}if(e.target.id==="clr"){S.kinds.clear();S.q="";$("q").value="";S.when="all";render()}});
+
+async function refreshData(){try{const sa=await getJSON("data/sa.json");if(sa.updated!==S.sa?.updated){S.sa=sa;if(S.tx)S.tx=await getJSON("data/texas.json");fillAreas();render()}freshness()}catch(e){}}
+(async()=>{getJSON("tx-counties.json").then(c=>{S.counties=c;if(ready)fitArea(false)}).catch(()=>{});
+  try{S.sa=await getJSON("data/sa.json")}catch(e){$("fresh").textContent="Closure data is temporarily unavailable. Try again in a few minutes.";return}
+  const a=S.area;S.area=a==="sa"||a==="texas"||SA.includes(a)||(S.sa.counts||{})[a]?a:"sa";
+  fillAreas();freshness();await setArea(S.area,false);if(ready)fitArea(false);
+  setInterval(freshness,6e4);setInterval(refreshData,5*6e4);
+  document.addEventListener("visibilitychange",()=>{if(!document.hidden)refreshData()})})();
+}
+</script>
+</body>
+</html>
