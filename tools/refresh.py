@@ -120,7 +120,7 @@ def load_counties(tol=0.0, digits=4):
             rings.append([[round(x, digits), round(y, digits)] for x, y in ring])
         xs = [x for r in rings for x, _ in r]
         ys = [y for r in rings for _, y in r]
-        out.append({"n": p["NAME"], "b": [min(xs), min(ys), max(xs), max(ys)], "r": rings})
+        out.append({"n": p["NAME"], "f": str(f.get("id", "")), "b": [min(xs), min(ys), max(xs), max(ys)], "r": rings})
     out.sort(key=lambda c: c["n"])
     return out
 
@@ -405,6 +405,35 @@ def normalize(feed, counties):
     return out, ("WZDx" if is_wzdx else "DriveTexas"), info.get("update_date"), skipped
 
 
+NWS_URL = "https://api.weather.gov/alerts/active?area=TX"
+ALERT_KEYS = ("id", "event", "severity", "urgency", "headline", "description", "instruction", "areaDesc",
+              "onset", "effective", "expires", "ends", "messageType", "senderName")
+
+
+def fetch_alerts():
+    """Active National Weather Service alerts for Texas, trimmed. Never fatal: returns None on failure."""
+    ctx = ssl.create_default_context(cafile=os.environ.get("SSL_CERT_FILE") or None)
+    req = urllib.request.Request(NWS_URL, headers={
+        "User-Agent": "HighwayClosuresTX/1.0 (github.com/brianjmosley-sketch/Highway-closures)",
+        "Accept": "application/geo+json"})
+    try:
+        with urllib.request.urlopen(req, timeout=60, context=ctx) as r:
+            d = json.loads(r.read().decode("utf-8"))
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        print(f"weather alerts skipped: {e}", file=sys.stderr)
+        return None
+    feats = []
+    for f in d.get("features", []):
+        p = f.get("properties") or {}
+        q = {k: p.get(k) for k in ALERT_KEYS if p.get(k)}
+        if q.get("description"):
+            q["description"] = q["description"][:1500]
+        q["geocode"] = {"SAME": (p.get("geocode") or {}).get("SAME", [])}
+        feats.append({"type": "Feature", "properties": q, "geometry": f.get("geometry")})
+    return {"type": "FeatureCollection", "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "features": feats}
+
+
 def write(out, name, obj):
     os.makedirs(out, exist_ok=True)
     path = os.path.join(out, name)
@@ -454,6 +483,10 @@ def main():
     s1 = write(a.out, "sa.json", {**meta, "scope": "sa", "events": sa})
     s2 = write(a.out, "texas.json", {**meta, "scope": "texas", "events": events})
     kinds = {k: sum(1 for e in events if e["kind"] == k) for k in ("closed", "lanes", "work")}
+    alerts = fetch_alerts()
+    if alerts is not None:
+        write(a.out, "alerts.json", alerts)
+        print(f"weather alerts: {len(alerts['features'])}")
     labels = {}
     for e in events:
         labels[e["label"]] = labels.get(e["label"], 0) + 1

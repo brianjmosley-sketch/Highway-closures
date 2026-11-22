@@ -29,6 +29,20 @@ h1{margin:0;font-weight:800;font-size:clamp(28px,6vw,46px);line-height:1.05;text
 .fresh{margin:4px 0 0;font-size:14px;font-weight:600}
 .area{display:flex;flex-direction:column;gap:2px;font-size:13px;font-weight:600}
 .area select{min-height:44px;font-size:16px;font-weight:600;border:2px solid var(--onorange);border-radius:8px;background:#fff;color:#141518;padding:0 10px;max-width:min(320px,90vw)}
+.wx{max-width:1240px;margin:12px auto 0;padding:0 max(4vw,16px)}
+.wx h2{margin:0 0 6px;font-size:16px;font-weight:800}
+.wx ul{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.wxi{border:1px solid var(--line);border-left:6px solid var(--w);border-radius:10px;background:var(--bg)}
+.wxi summary{list-style:none;cursor:pointer;padding:9px 12px;display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;min-height:44px}
+.wxi summary::-webkit-details-marker{display:none}
+.wxi b{font-weight:800}.wxi .wt{font-size:14px;color:var(--soft);font-weight:600}
+.wxi .wb{padding:0 12px 12px;font-size:14px}.wxi .wb p{margin:6px 0;white-space:pre-line}
+.wxi button{min-height:36px;padding:0 12px;border-radius:8px;border:1.5px solid var(--ink);background:var(--bg);font-weight:800;font-size:14px;cursor:pointer}
+.w-warning{--w:#d0021b}.w-watch{--w:#ef7d00}.w-advisory{--w:#d4a800}.w-other{--w:#6b7280}
+.wxnote{font-size:13px;color:var(--soft);margin:6px 0 0}
+.radarbtn{font:800 13px Overpass,system-ui,sans-serif!important;width:auto!important;padding:0 10px!important;height:32px!important;color:#141518}
+.radarbtn[aria-pressed=true]{background:#1f6fd6!important;color:#fff}
+.key .wxk i{background:rgba(208,2,27,.25);border:1.5px solid #d0021b;height:9px}
 .stale{background:var(--red);color:#fff;padding:10px max(4vw,16px);font-size:14px;font-weight:600}
 main{max-width:1240px;margin:0 auto;padding:14px max(4vw,16px) 40px;display:grid;grid-template-columns:minmax(0,1fr);gap:16px}
 @media(min-width:900px){main{grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);align-items:start}.mapwrap{position:sticky;top:12px}}
@@ -103,11 +117,12 @@ footer a{color:inherit}
     </label>
   </div>
 </header>
+<section class="wx" id="wx" hidden aria-label="Weather alerts"></section>
 <div class="stale" id="stale" hidden></div>
 <main>
   <section class="mapwrap" aria-label="Map">
     <div id="map"></div>
-    <div class="key"><span class="closed"><i></i>Road closed</span><span class="lanes"><i></i>Lanes, ramps or turnarounds closed</span><span class="work"><i></i>Work zone, lanes open</span></div>
+    <div class="key"><span class="closed"><i></i>Road closed</span><span class="lanes"><i></i>Lanes, ramps or turnarounds closed</span><span class="work"><i></i>Work zone, lanes open</span><span class="wxk"><i></i>Weather alert area</span></div>
   </section>
   <section aria-label="Closures">
     <div class="tally" id="tally">
@@ -132,7 +147,7 @@ footer a{color:inherit}
     <div id="after"></div>
   </section>
 </main>
-<footer>Road work data: Texas Department of Transportation, <a href="https://drivetexas.org/">DriveTexas</a>, refreshed about every 15 minutes. This site is independent and not run by TxDOT. Closures can change with weather; follow the signs on the road. Map: <a href="https://openfreemap.org/">OpenFreeMap</a>, data © OpenStreetMap contributors.</footer>
+<footer>Road work data: Texas Department of Transportation, <a href="https://drivetexas.org/">DriveTexas</a>, refreshed about every 15 minutes. This site is independent and not run by TxDOT. Closures can change with weather; follow the signs on the road. Weather alerts: <a href="https://www.weather.gov/">National Weather Service</a>. Radar: NWS NEXRAD via <a href="https://mesonet.agron.iastate.edu/">Iowa Environmental Mesonet</a>. Map: <a href="https://openfreemap.org/">OpenFreeMap</a>, data © OpenStreetMap contributors.</footer>
 <script src="lib/maplibre-gl.js"></script>
 <script>
 {
@@ -209,17 +224,33 @@ map.touchZoomRotate.disableRotation();
 map.addControl(new maplibregl.NavigationControl({showCompass:false}),"top-right");
 const geo=new maplibregl.GeolocateControl({positionOptions:{enableHighAccuracy:true},trackUserLocation:false,showAccuracyCircle:false,fitBoundsOptions:{maxZoom:11.5}});
 map.addControl(geo,"top-right");
+let radarOn=store.get("rw-radar")==="1",radarTimer=0;
+const RADAR="https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913/{z}/{x}/{y}.png";
+class RadarCtl{onAdd(){const d=document.createElement("div");d.className="maplibregl-ctrl maplibregl-ctrl-group";
+  d.innerHTML=`<button class="radarbtn" id="radarbtn" aria-pressed="${radarOn}" title="Weather radar">Radar</button>`;d.firstChild.addEventListener("click",()=>radar(!radarOn));return d}onRemove(){}}
+map.addControl(new RadarCtl(),"top-left");
+function radar(on){radarOn=on;store.set("rw-radar",on?"1":"0");$("radarbtn")?.setAttribute("aria-pressed",on);if(!ready)return;
+  const url=()=>RADAR+"?t="+Math.floor(Date.now()/3e5);
+  if(on){if(!map.getSource("radar")){map.addSource("radar",{type:"raster",tiles:[url()],tileSize:256,attribution:"Radar: NWS NEXRAD via Iowa Environmental Mesonet"});
+      map.addLayer({id:"radar",type:"raster",source:"radar",paint:{"raster-opacity":0.62}},"wx-fill")}
+    clearInterval(radarTimer);radarTimer=setInterval(()=>map.getSource("radar")?.setTiles([url()]),3e5)}
+  else{clearInterval(radarTimer);if(map.getLayer("radar"))map.removeLayer("radar");if(map.getSource("radar"))map.removeSource("radar")}}
+map.on("error",e=>{if(e.sourceId==="radar"&&radarOn){radar(false);$("count").textContent="Weather radar isn't available right now."}});
 let ready=false,popup=null;
 map.on("load",()=>{const first=map.getStyle().layers.find(l=>l.type==="symbol")?.id;
   map.addSource("cl",{type:"geojson",data:{type:"FeatureCollection",features:[]}});
   map.addSource("mid",{type:"geojson",data:{type:"FeatureCollection",features:[]}});
   const kind=["match",["get","kind"],"closed",COL.closed,"lanes",COL.lanes,COL.work];
   const w=(a,b)=>["interpolate",["linear"],["zoom"],7,a,15,b];
+  map.addSource("wx",{type:"geojson",data:{type:"FeatureCollection",features:[]}});
+  const wcol=["match",["get","cls"],"warning","#d0021b","watch","#ef7d00","advisory","#d4a800","#6b7280"];
+  map.addLayer({id:"wx-fill",type:"fill",source:"wx",paint:{"fill-color":wcol,"fill-opacity":0.16}},first);
+  map.addLayer({id:"wx-line",type:"line",source:"wx",paint:{"line-color":wcol,"line-width":1.6,"line-opacity":0.8}},first);
   map.addLayer({id:"cl-case",type:"line",source:"cl",layout:{"line-cap":"round","line-join":"round"},paint:{"line-color":"#ffffff","line-width":w(5,13)}},first);
   map.addLayer({id:"cl-sel",type:"line",source:"cl",filter:["==",["get","id"],""],layout:{"line-cap":"round","line-join":"round"},paint:{"line-color":"#141518","line-width":w(10,19)}},first);
   map.addLayer({id:"cl-line",type:"line",source:"cl",layout:{"line-cap":"round","line-join":"round"},paint:{"line-color":kind,"line-width":w(3,8)}},first);
   map.addLayer({id:"cl-dot",type:"circle",source:"mid",maxzoom:11,paint:{"circle-color":kind,"circle-radius":["interpolate",["linear"],["zoom"],6,3,10,5.5],"circle-stroke-color":"#fff","circle-stroke-width":1.5}});
-  ready=true;mapData();fitArea(false)});
+  ready=true;mapData();wxData();if(radarOn)radar(true);fitArea(false)});
 map.on("click",e=>{const p=e.point,f=map.queryRenderedFeatures([[p.x-14,p.y-14],[p.x+14,p.y+14]],{layers:["cl-line","cl-dot"]});
   if(f.length){select(f[0].properties.id,"map")}else if(popup){popup.remove()}});
 for(const l of ["cl-line","cl-dot"]){map.on("mouseenter",l,()=>map.getCanvas().style.cursor="pointer");map.on("mouseleave",l,()=>map.getCanvas().style.cursor="")}
@@ -248,7 +279,7 @@ async function setArea(a,fit=true){S.area=a;S.sel=null;S.shown=60;store.set("rw-
   $("title").textContent=a==="sa"?"San Antonio area":a==="texas"?"All of Texas":`${a} County`;
   if(a!=="sa"&&!SA.includes(a)&&!S.tx){$("list").innerHTML="";$("count").textContent="Loading statewide data…";
     try{S.tx=await getJSON("data/texas.json")}catch(e){$("count").textContent="Statewide data could not load. Try again in a moment.";return}}
-  render();if(fit)fitArea()}
+  render();wxData();if(fit)fitArea()}
 function fillAreas(){const c=S.sa.counts||{};const other=Object.keys(c).filter(n=>n!=="Unknown"&&!SA.includes(n)).sort();
   $("area").innerHTML=`<option value="sa">San Antonio area (${SA.reduce((t,n)=>t+(c[n]||0),0)})</option><optgroup label="San Antonio area counties">${SA.map(n=>`<option value="${n}">${n} (${c[n]||0})</option>`).join("")}</optgroup><option value="texas">All of Texas (${S.sa.total})</option>${other.length?`<optgroup label="Other counties">${other.map(n=>`<option value="${esc(n)}">${esc(n)} (${c[n]})</option>`).join("")}</optgroup>`:""}`;
   $("area").value=S.area}
@@ -271,8 +302,34 @@ $("list").addEventListener("click",e=>{if(e.target.closest("a"))return;const b=e
 $("list").addEventListener("keydown",e=>{const c=e.target.closest(".card");if(c&&e.target===c&&(e.key==="Enter"||e.key===" ")){e.preventDefault();select(c.dataset.id,"card")}});
 $("after").addEventListener("click",e=>{if(e.target.id==="more"){S.shown+=60;render()}if(e.target.id==="clr"){S.kinds.clear();S.q="";$("q").value="";S.when="all";render()}});
 
-async function refreshData(){try{const sa=await getJSON("data/sa.json");if(sa.updated!==S.sa?.updated){S.sa=sa;if(S.tx)S.tx=await getJSON("data/texas.json");fillAreas();render()}freshness()}catch(e){}}
-(async()=>{getJSON("tx-counties.json").then(c=>{S.counties=c;if(ready)fitArea(false)}).catch(()=>{});
+// ---------- weather alerts ----------
+const WXR={warning:0,watch:1,advisory:2,other:3};
+const wxCls=ev=>{ev=(ev||"").toLowerCase();return ev.includes("warning")||ev.includes("emergency")?"warning":ev.includes("watch")?"watch":ev.includes("advisory")?"advisory":"other"};
+function normAlerts(fc){if(!S.counties)return [];const byF={};for(const c of S.counties)byF[c.f]=c;const now=Date.now();
+  return (fc.features||[]).map(f=>{const p=f.properties||{};const cs=(p.geocode?.SAME||[]).map(x=>byF[String(x).replace(/^0/,"")]).filter(Boolean);
+    let g=f.geometry;if(!g&&cs.length)g={type:"MultiPolygon",coordinates:cs.flatMap(c=>c.r.map(r=>[r]))};if(!g)return null;
+    let b=[180,90,-180,-90];const walk=a=>{if(typeof a[0]==="number"){b=[Math.min(b[0],a[0]),Math.min(b[1],a[1]),Math.max(b[2],a[0]),Math.max(b[3],a[1])]}else a.forEach(walk)};walk(g.coordinates);
+    return {id:p.id||f.id||Math.random().toString(36),event:p.event||"Weather alert",cls:wxCls(p.event),headline:p.headline,desc:p.description,instr:p.instruction,areaDesc:p.areaDesc,
+      end:p.ends||p.expires,counties:cs.map(c=>c.n),geom:g,bb:b}}).filter(a=>a&&(!a.end||Date.parse(a.end)>now)&&(a.cls!=="other"||/flood|storm|wind|ice|winter|fog|dust|fire|heat|freeze|hydrolog/i.test(a.event)))
+    .sort((x,y)=>WXR[x.cls]-WXR[y.cls]||Date.parse(x.end||0)-Date.parse(y.end||0))}
+function areaAlerts(){const names=S.area==="sa"?SA:S.area==="texas"?null:[S.area];const box=areaBox();
+  return (S.alerts||[]).filter(a=>!names||a.counties.some(n=>names.includes(n))||(!a.counties.length&&box&&a.bb[2]>=box[0]&&a.bb[0]<=box[2]&&a.bb[3]>=box[1]&&a.bb[1]<=box[3]))}
+function wxData(){if(!ready)return;const al=areaAlerts();
+  map.getSource("wx").setData({type:"FeatureCollection",features:al.map(a=>({type:"Feature",properties:{id:a.id,cls:a.cls},geometry:a.geom}))});
+  const el=$("wx");if(!al.length){el.hidden=true;el.innerHTML="";return}el.hidden=false;
+  const names=S.area==="sa"?SA:S.area==="texas"?null:[S.area];
+  el.innerHTML=`<h2>${al.length} weather ${al.length===1?"alert":"alerts"} for ${esc(areaName())}</h2><ul>${al.slice(0,12).map(a=>{const cs=names?a.counties.filter(n=>names.includes(n)):a.counties;
+    return `<li><details class="wxi w-${a.cls}"><summary><b>${esc(a.event)}</b><span class="wt">${a.end?"until "+esc(when(new Date(a.end))):""}${cs.length?" · "+esc(cs.slice(0,4).join(", "))+(cs.length>4?` +${cs.length-4}`:""):""}</span></summary>
+    <div class="wb">${a.headline?`<p><b>${esc(a.headline)}</b></p>`:""}${a.desc?`<p>${esc(a.desc)}</p>`:""}${a.instr?`<p>${esc(a.instr)}</p>`:""}<button data-wx="${esc(a.id)}">Show on map</button></div></details></li>`}).join("")}</ul>${al.length>12?`<p class="wxnote">Showing 12 of ${al.length}. Full list at weather.gov.</p>`:""}`}
+$("wx").addEventListener("click",e=>{const b=e.target.closest("[data-wx]");if(!b)return;const a=(S.alerts||[]).find(x=>x.id===b.dataset.wx);if(!a)return;
+  map.fitBounds([[a.bb[0],a.bb[1]],[a.bb[2],a.bb[3]]],{padding:30,maxZoom:11});const r=$("map").getBoundingClientRect();if(r.top<0||r.bottom>innerHeight)$("map").scrollIntoView({block:"start",behavior:smooth()})});
+async function loadAlerts(){let fc=null;
+  try{const r=await fetch("https://api.weather.gov/alerts/active?area=TX");if(r.ok)fc=await r.json()}catch(e){}
+  if(!fc){try{fc=await getJSON("data/alerts.json")}catch(e){}}
+  if(fc){S.alertsRaw=fc;S.alerts=normAlerts(fc);wxData()}}
+
+async function refreshData(){loadAlerts();try{const sa=await getJSON("data/sa.json");if(sa.updated!==S.sa?.updated){S.sa=sa;if(S.tx)S.tx=await getJSON("data/texas.json");fillAreas();render()}freshness()}catch(e){}}
+(async()=>{getJSON("tx-counties.json").then(c=>{S.counties=c;if(ready)fitArea(false);loadAlerts()}).catch(()=>{});
   try{S.sa=await getJSON("data/sa.json")}catch(e){$("fresh").textContent="Closure data is temporarily unavailable. Try again in a few minutes.";return}
   const a=S.area;S.area=a==="sa"||a==="texas"||SA.includes(a)||(S.sa.counts||{})[a]?a:"sa";
   fillAreas();freshness();await setArea(S.area,false);if(ready)fitArea(false);
